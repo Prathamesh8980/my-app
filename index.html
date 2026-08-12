@@ -1911,64 +1911,183 @@ function updateReqItemUnit(idx) {
   }
 }
 
-function submitRequest() {
-  // Collect current form values
+async function submitRequest() {
+  // Collect form values
   const purposeEl = $('rq-purpose');
   const urgencyEl = $('rq-urgency');
+
   const purpose = purposeEl ? purposeEl.value.trim() : '';
   const urgency = urgencyEl ? urgencyEl.value : 'normal';
-  
-  // Read item inputs from DOM
+
+  // Read requested items
   const rows = document.querySelectorAll('.ri-row');
   const items = [];
+
   rows.forEach(row => {
     const sel = row.querySelector('.ri-sel');
     const qty = row.querySelector('.ri-qty');
-    if (sel && qty && sel.value && parseInt(qty.value) > 0) {
-      items.push({ itemId: parseInt(sel.value), qty: parseInt(qty.value) });
+
+    if (
+      sel &&
+      qty &&
+      sel.value &&
+      parseInt(qty.value) > 0
+    ) {
+      items.push({
+        itemId: parseInt(sel.value),
+        qty: parseInt(qty.value)
+      });
     }
   });
 
-  if (!purpose) { toast('Please describe the purpose', 'warning'); return; }
-  if (items.length === 0) { toast('Add at least one item', 'warning'); return; }
+  // Validation
+  if (!purpose) {
+    toast('Please describe the purpose', 'warning');
+    return;
+  }
 
-  const newReq = {
-    id: nextId(DB.requests),
-    reqId: `REQ-${String(nextId(DB.requests)).padStart(3,'0')}`,
-    userId: CU.id,
-    purpose, urgency, items,
-    status: 'pending',
-    submittedAt: new Date().toISOString(),
-    reviewedAt: null, reviewedBy: null, reviewNotes: '',
-    issuedAt: null, issuedBy: null,
-  };
-  newReq.reqId = `REQ-${String(newReq.id).padStart(3,'0')}`;
-  DB.requests.push(newReq);
-  logActivity('Request Submitted', `${newReq.reqId} submitted by ${CU.name} — ${purpose}`);
-  saveDB(); closeModal(); toast('Request submitted!','success');
-  bannerDismissed = false;
-  navigate('requests'); checkAlerts();
+  if (items.length === 0) {
+    toast('Add at least one item', 'warning');
+    return;
+  }
+
+  if (!CU || !CU.id) {
+    toast('User session not found. Please login again.', 'error');
+    return;
+  }
+
+  try {
+    // Generate request number
+    const nextRequestNumber =
+      DB.requests.length > 0
+        ? Math.max(...DB.requests.map(r => Number(r.id) || 0)) + 1
+        : 1;
+
+    const reqId =
+      `REQ-${String(nextRequestNumber).padStart(3, '0')}`;
+
+    const submittedAt = new Date().toISOString();
+
+    // -----------------------------------------
+    // 1. INSERT REQUEST INTO SUPABASE
+    // -----------------------------------------
+    const { data: request, error: requestError } =
+      await supabaseClient
+        .from('requests')
+        .insert({
+          req_id: reqId,
+          user_id: CU.id,
+          purpose: purpose,
+          urgency: urgency,
+          status: 'pending',
+          submitted_at: submittedAt
+        })
+        .select()
+        .single();
+
+    if (requestError) {
+      console.error('Request insert error:', requestError);
+      toast(
+        'Unable to submit request: ' + requestError.message,
+        'error'
+      );
+      return;
+    }
+
+    console.log('Request created in Supabase:', request);
+
+    // -----------------------------------------
+    // 2. INSERT REQUEST ITEMS INTO SUPABASE
+    // -----------------------------------------
+    const requestItems = items.map(item => ({
+      request_id: request.id,
+      item_id: item.itemId,
+      qty: item.qty
+    }));
+
+    const { data: insertedItems, error: itemsError } =
+      await supabaseClient
+        .from('request_items')
+        .insert(requestItems)
+        .select();
+
+    if (itemsError) {
+      console.error('Request items insert error:', itemsError);
+
+      // Remove parent request if item insertion fails
+      await supabaseClient
+        .from('requests')
+        .delete()
+        .eq('id', request.id);
+
+      toast(
+        'Request items could not be saved: ' + itemsError.message,
+        'error'
+      );
+      return;
+    }
+
+    console.log(
+      'Request items created in Supabase:',
+      insertedItems
+    );
+
+    // -----------------------------------------
+    // 3. UPDATE LOCAL APPLICATION DATA
+    // -----------------------------------------
+    const newReq = {
+      id: request.id,
+      reqId: request.req_id,
+      userId: request.user_id,
+      purpose: request.purpose,
+      urgency: request.urgency,
+      items: items,
+      status: request.status,
+      submittedAt: request.submitted_at,
+      reviewedAt: null,
+      reviewedBy: null,
+      reviewNotes: '',
+      issuedAt: null,
+      issuedBy: null
+    };
+
+    DB.requests.push(newReq);
+
+    // -----------------------------------------
+    // 4. ACTIVITY LOG
+    // -----------------------------------------
+    logActivity(
+      'Request Submitted',
+      `${newReq.reqId} submitted by ${CU.name} — ${purpose}`
+    );
+
+    // -----------------------------------------
+    // 5. FINISH
+    // -----------------------------------------
+    closeModal();
+
+    toast(
+      `${newReq.reqId} submitted successfully!`,
+      'success'
+    );
+
+    bannerDismissed = false;
+
+    // Reload everything from Supabase
+    await loadDB();
+
+    navigate('requests');
+    checkAlerts();
+
+  } catch (error) {
+    console.error('Unexpected request submission error:', error);
+
+    toast(
+      'Something went wrong while submitting the request.',
+      'error'
+    );
+  }
 }
-
-// -- Review (Approve/Reject) --
-function openReview(id, action) {
-  const r = DB.requests.find(x => x.id === id);
-  const isApprove = action === 'approve';
-  openModal(isApprove ? 'Approve Request' : 'Reject Request', `
-    <div class="${isApprove?'info-box':'warn-box'}">
-      ${isApprove ? '✅ Approving this request will allow you to issue the items in the next step.' : '❌ Rejection cannot be undone. The employee will see your reason.'}
-    </div>
-    <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:14px">
-      <div class="fw6 txt-ink" style="margin-bottom:6px">${r.reqId} — ${r.purpose}</div>
-      ${r.items.map(ri=>{ const it=getItem(ri.itemId); return it?`<div class="txt-sm txt-muted">• ${it.name} — ${ri.qty} ${it.unit} (stock: ${it.qty})</div>`:'' }).join('')}
-    </div>
-    <div class="fg"><label>Notes for Employee *</label>
-      <textarea class="fc" id="rev-notes" placeholder="${isApprove?'e.g. Approved — collect from store room 2':'e.g. Sufficient stock remaining, resubmit next month'}"></textarea>
-    </div>
-  `, `<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn ${isApprove?'btn-success':'btn-danger'}" onclick="doReview(${id},'${action}')">${isApprove?'✅ Approve':'❌ Reject'}</button>`);
-}
-
 function doReview(id, action) {
   const notes = $('rev-notes')?.value.trim();
   if (action==='reject' && !notes) { toast('Please provide a reason for rejection','warning'); return; }
