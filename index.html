@@ -2355,7 +2355,64 @@ document.addEventListener('keydown', e => {
   if (e.key==='Escape') closeModal();
   if (e.key==='Enter' && $('login-screen').style.display!=='none') doLogin();
 });
+// ============================================================
+// RESTORE SUPABASE SESSION
+// ============================================================
 
+async function restoreSupabaseSession() {
+
+    const {
+        data: { session },
+        error: sessionError
+    } = await supabaseClient.auth.getSession();
+
+    if (sessionError) {
+        console.error('Session error:', sessionError);
+        return;
+    }
+
+    // No active login session
+    if (!session) {
+        return;
+    }
+
+    // Get profile belonging to logged-in Supabase user
+    const { data: profile, error: profileError } =
+        await supabaseClient
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+    if (profileError || !profile) {
+        console.error('Profile not found:', profileError);
+        await supabaseClient.auth.signOut();
+        return;
+    }
+
+    // Check account status
+    if (profile.status !== 'active') {
+        console.error('Account is inactive.');
+        await supabaseClient.auth.signOut();
+        return;
+    }
+
+    // Set current user
+    CU = {
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        role: profile.role,
+        dept: profile.dept,
+        empId: profile.emp_id,
+        status: profile.status,
+        createdAt: profile.created_at
+    };
+
+    console.log('Supabase session restored:', CU);
+
+    showApp();
+}
 // ============================================================
 // APP STARTUP
 // ============================================================
