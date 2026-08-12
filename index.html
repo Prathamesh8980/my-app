@@ -907,8 +907,9 @@ async function logout() {
 
 // Quick login buttons will be disabled later.
 // For now, they simply populate the email field.
-function quickLogin(email) {
-  document.getElementById('l-email').value = email;
+function quickLogin(email, password) {
+  document.getElementById('l-email').value = email || '';
+  document.getElementById('l-pwd').value = password || '';
   document.getElementById('l-pwd').focus();
 }
 // ════════════════════════════════════════════════════════════════════
@@ -1532,45 +1533,6 @@ async function addCat() {
   }
 }
 
-  try {
-
-    // Save the REAL category to Supabase
-    const { data, error } = await supabaseClient
-      .from('categories')
-      .insert({
-        name: name,
-        icon: icon,
-        color: color
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Add category error:', error);
-      toast('Unable to add category: ' + error.message, 'error');
-      return;
-    }
-
-    // Add returned database record to the current app state
-    DB.categories.push({
-      id: data.id,
-      name: data.name,
-      icon: data.icon,
-      color: data.color
-    });
-
-    toast('Category added successfully', 'success');
-
-    // Refresh the category window
-    openManageCategories();
-
-  } catch (err) {
-
-    console.error('Unexpected category error:', err);
-    toast('Unable to add category', 'error');
-
-  }
-}
 
 function deleteCat(id) {
   DB.categories = DB.categories.filter(c => c.id !== id);
