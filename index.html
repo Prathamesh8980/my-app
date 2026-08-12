@@ -1461,13 +1461,55 @@ function openManageCategories() {
      <button class="btn btn-primary" onclick="addCat()">Add Category</button>`);
 }
 
-function addCat() {
+async function addCat() {
+
   const name = $('nc-name')?.value.trim();
-  const icon = $('nc-icon')?.value.trim()||'📁';
-  const color= $('nc-color')?.value||'#10B981';
-  if (!name) { toast('Enter a category name','error'); return; }
-  DB.categories.push({ id: nextId(DB.categories), name, icon, color });
-  saveDB(); toast('Category added','success'); openManageCategories();
+  const icon = $('nc-icon')?.value.trim() || '📁';
+  const color = $('nc-color')?.value || '#10B981';
+
+  if (!name) {
+    toast('Enter a category name', 'error');
+    return;
+  }
+
+  try {
+
+    // Save the REAL category to Supabase
+    const { data, error } = await supabaseClient
+      .from('categories')
+      .insert({
+        name: name,
+        icon: icon,
+        color: color
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Add category error:', error);
+      toast('Unable to add category: ' + error.message, 'error');
+      return;
+    }
+
+    // Add returned database record to the current app state
+    DB.categories.push({
+      id: data.id,
+      name: data.name,
+      icon: data.icon,
+      color: data.color
+    });
+
+    toast('Category added successfully', 'success');
+
+    // Refresh the category window
+    openManageCategories();
+
+  } catch (err) {
+
+    console.error('Unexpected category error:', err);
+    toast('Unable to add category', 'error');
+
+  }
 }
 
 function deleteCat(id) {
