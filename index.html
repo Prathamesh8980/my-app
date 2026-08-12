@@ -1474,6 +1474,52 @@ async function addCat() {
 
   try {
 
+    console.log('Adding category to Supabase:', {
+      name,
+      icon,
+      color
+    });
+
+    const { data, error } = await supabaseClient
+      .from('categories')
+      .insert({
+        name: name,
+        icon: icon,
+        color: color
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase category insert error:', error);
+      toast('Unable to add category: ' + error.message, 'error');
+      return;
+    }
+
+    console.log('Category added to Supabase:', data);
+
+    // Update current application state
+    DB.categories.push({
+      id: data.id,
+      name: data.name,
+      icon: data.icon,
+      color: data.color
+    });
+
+    toast('Category added successfully', 'success');
+
+    openManageCategories();
+
+  } catch (err) {
+
+    console.error('Unexpected category error:', err);
+    toast('Unable to add category', 'error');
+
+  }
+}
+
+  try {
+
     // Save the REAL category to Supabase
     const { data, error } = await supabaseClient
       .from('categories')
