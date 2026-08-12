@@ -601,36 +601,116 @@ function seed() {
   return { users, categories, inventory, requests, issuances, activities };
 }
 
-// ════════════════════════════════════════════════════════════════════
-// AUTH
-// ════════════════════════════════════════════════════════════════════
-function quickLogin(email, pwd) {
-  document.getElementById('l-email').value = email;
-  document.getElementById('l-pwd').value = pwd;
-  doLogin();
-}
+// ============================================================
+// SUPABASE AUTHENTICATION
+// ============================================================
 
-function doLogin() {
+async function doLogin() {
   const email = document.getElementById('l-email').value.trim().toLowerCase();
   const pwd   = document.getElementById('l-pwd').value;
   const errEl = document.getElementById('l-err');
-  const user  = DB.users.find(u => u.email === email && u.pwd === pwd);
-  if (!user) { errEl.textContent = 'Invalid email or password.'; errEl.style.display = 'block'; return; }
-  if (user.status !== 'active') { errEl.textContent = 'Account is inactive. Contact your admin.'; errEl.style.display = 'block'; return; }
+
   errEl.style.display = 'none';
-  CU = user;
-  sessionStorage.setItem('psm_user', user.id);
-  logActivity('User Logged In', `${user.name} signed in`, user.id);
-  showApp();
+
+  if (!email || !pwd) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  try {
+    // Sign in using Supabase Authentication
+    const { data: authData, error: authError } =
+      await supabaseClient.auth.signInWithPassword({
+        email: email,
+        password: pwd
+      });
+
+    if (authError) {
+      console.error('Supabase login error:', authError);
+      errEl.textContent = 'Invalid email or password.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    // Get the user's profile from our profiles table
+    const { data: profile, error: profileError } =
+      await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+    if (profileError || !profile) {
+      console.error('Profile error:', profileError);
+
+      await supabaseClient.auth.signOut();
+
+      errEl.textContent =
+        'Your account profile is not configured. Please contact the administrator.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    // Check whether the account is active
+    if (profile.status !== 'active') {
+      await supabaseClient.auth.signOut();
+
+      errEl.textContent =
+        'Account is inactive. Contact your administrator.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    // Convert Supabase profile into the format
+    // the existing application expects
+    CU = {
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role,
+      dept: profile.dept,
+      empId: profile.emp_id,
+      status: profile.status,
+      createdAt: profile.created_at
+    };
+
+    errEl.style.display = 'none';
+
+    // Keep the existing local application state for now.
+    // We will migrate the remaining data to Supabase next.
+    showApp();
+
+  } catch (err) {
+    console.error('Unexpected login error:', err);
+
+    errEl.textContent =
+      'Unable to sign in. Please try again.';
+    errEl.style.display = 'block';
+  }
 }
 
-function logout() {
+
+async function logout() {
+  try {
+    await supabaseClient.auth.signOut();
+  } catch (err) {
+    console.error('Logout error:', err);
+  }
+
   CU = null;
-  sessionStorage.removeItem('psm_user');
+
   document.getElementById('app').classList.add('hidden');
   document.getElementById('login-screen').style.display = 'flex';
 }
 
+
+// Quick login buttons will be disabled later.
+// For now, they simply populate the email field.
+function quickLogin(email) {
+  document.getElementById('l-email').value = email;
+  document.getElementById('l-pwd').focus();
+}
 // ════════════════════════════════════════════════════════════════════
 // UTILITIES
 // ════════════════════════════════════════════════════════════════════
@@ -2090,13 +2170,49 @@ document.addEventListener('keydown', e => {
   if (e.key==='Enter' && $('login-screen').style.display!=='none') doLogin();
 });
 
+// ============================================================
+// APP STARTUP
+// ============================================================
+
 loadDB();
-// Try to restore session
-const savedId = sessionStorage.getItem('psm_user');
-if (savedId) {
-  const u = DB.users.find(x=>x.id===parseInt(savedId));
-  if (u && u.status==='active') { CU=u; showApp(); }
+
+async function restoreSupabaseSession() {
+
+  const {
+    data: { session }
+  } = await supabaseClient.auth.getSession();
+
+  if (!session) {
+    return;
+  }
+
+  const { data: profile, error } =
+    await supabaseClient
+      .from('profiles')
+      .select('*')
+      .eq('id', session.user.id)
+      .single();
+
+  if (error || !profile || profile.status !== 'active') {
+    await supabaseClient.auth.signOut();
+    return;
+  }
+
+  CU = {
+    id: profile.id,
+    name: profile.name,
+    email: profile.email,
+    role: profile.role,
+    dept: profile.dept,
+    empId: profile.emp_id,
+    status: profile.status,
+    createdAt: profile.created_at
+  };
+
+  showApp();
 }
+
+restoreSupabaseSession();
 </script>
 </body>
 </html>
