@@ -791,6 +791,102 @@ function seed() {
 // SUPABASE AUTHENTICATION
 // ============================================================
 
+async function doLogin() {
+
+  const email = $('l-email')?.value.trim().toLowerCase();
+  const pwd = $('l-pwd')?.value || '';
+  const errEl = $('l-err');
+
+  if (!email || !pwd) {
+    if (errEl) {
+      errEl.textContent = 'Please enter your email and password.';
+      errEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (errEl) errEl.style.display = 'none';
+
+  try {
+    console.log('Supabase login attempt:', email);
+
+    const { data: authData, error: authError } =
+      await supabaseClient.auth.signInWithPassword({
+        email,
+        password: pwd
+      });
+
+    if (authError) {
+      console.error('Supabase login error:', authError);
+      if (errEl) {
+        errEl.textContent = authError.message || 'Invalid email or password.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    if (!authData?.user || !authData?.session) {
+      if (errEl) {
+        errEl.textContent = 'Login session could not be created.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    const { data: profile, error: profileError } =
+      await supabaseClient
+        .from('profiles')
+        .select('*')
+        .eq('id', authData.user.id)
+        .single();
+
+    if (profileError || !profile) {
+      console.error('Profile lookup error:', profileError);
+      await supabaseClient.auth.signOut();
+      if (errEl) {
+        errEl.textContent = 'User profile not found. Please contact the administrator.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    if (profile.status !== 'active') {
+      console.error('Account is inactive:', profile.status);
+      await supabaseClient.auth.signOut();
+      if (errEl) {
+        errEl.textContent = 'Account is inactive. Please contact the administrator.';
+        errEl.style.display = 'block';
+      }
+      return;
+    }
+
+    CU = {
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      role: profile.role,
+      dept: profile.dept,
+      empId: profile.emp_id,
+      status: profile.status,
+      createdAt: profile.created_at
+    };
+
+    console.log('Supabase login successful:', CU);
+
+    $('l-email').value = '';
+    $('l-pwd').value = '';
+
+    showApp();
+
+  } catch (err) {
+    console.error('Unexpected login error:', err);
+    if (errEl) {
+      errEl.textContent = 'Login failed. Please try again.';
+      errEl.style.display = 'block';
+    }
+  }
+}
+
 async function logout() {
 
   try {
@@ -808,20 +904,6 @@ async function logout() {
 
   console.log('Logged out successfully');
 }
-
-async function logout() {
-  try {
-    await supabaseClient.auth.signOut();
-  } catch (err) {
-    console.error('Logout error:', err);
-  }
-
-  CU = null;
-
-  document.getElementById('app').classList.add('hidden');
-  document.getElementById('login-screen').style.display = 'flex';
-}
-
 
 // Quick login buttons will be disabled later.
 // For now, they simply populate the email field.
