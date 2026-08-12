@@ -478,13 +478,199 @@ let DB = {};
 let CU = null; // current user
 let bannerDismissed = false;
 
-function loadDB() {
-  const raw = localStorage.getItem(STORE_KEY);
-  if (raw) { try { DB = JSON.parse(raw); } catch { DB = seed(); } }
-  else { DB = seed(); saveDB(); }
-  // ensure all arrays exist
-  DB.activities = DB.activities || [];
-  DB.issuances  = DB.issuances  || [];
+async function loadDB() {
+  try {
+    // --------------------------------------------------
+    // USERS / PROFILES
+    // --------------------------------------------------
+    const { data: profiles, error: profilesError } =
+      await supabaseClient
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+    if (profilesError) throw profilesError;
+
+    // --------------------------------------------------
+    // CATEGORIES
+    // --------------------------------------------------
+    const { data: categories, error: categoriesError } =
+      await supabaseClient
+        .from('categories')
+        .select('*')
+        .order('id');
+
+    if (categoriesError) throw categoriesError;
+
+    // --------------------------------------------------
+    // INVENTORY
+    // --------------------------------------------------
+    const { data: inventory, error: inventoryError } =
+      await supabaseClient
+        .from('inventory')
+        .select('*')
+        .order('id');
+
+    if (inventoryError) throw inventoryError;
+
+    // --------------------------------------------------
+    // REQUESTS
+    // --------------------------------------------------
+    const { data: requests, error: requestsError } =
+      await supabaseClient
+        .from('requests')
+        .select('*')
+        .order('id');
+
+    if (requestsError) throw requestsError;
+
+    // --------------------------------------------------
+    // REQUEST ITEMS
+    // --------------------------------------------------
+    const { data: requestItems, error: requestItemsError } =
+      await supabaseClient
+        .from('request_items')
+        .select('*')
+        .order('id');
+
+    if (requestItemsError) throw requestItemsError;
+
+    // --------------------------------------------------
+    // ISSUANCES
+    // --------------------------------------------------
+    const { data: issuances, error: issuancesError } =
+      await supabaseClient
+        .from('issuances')
+        .select('*')
+        .order('id');
+
+    if (issuancesError) throw issuancesError;
+
+    // --------------------------------------------------
+    // ISSUANCE ITEMS
+    // --------------------------------------------------
+    const { data: issuanceItems, error: issuanceItemsError } =
+      await supabaseClient
+        .from('issuance_items')
+        .select('*')
+        .order('id');
+
+    if (issuanceItemsError) throw issuanceItemsError;
+
+    // --------------------------------------------------
+    // ACTIVITIES
+    // --------------------------------------------------
+    const { data: activities, error: activitiesError } =
+      await supabaseClient
+        .from('activities')
+        .select('*')
+        .order('at', { ascending: false });
+
+    if (activitiesError) throw activitiesError;
+
+    // --------------------------------------------------
+    // Convert Supabase data to the structure
+    // already expected by your application
+    // --------------------------------------------------
+
+    DB = {
+      users: (profiles || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        role: p.role,
+        dept: p.dept,
+        empId: p.emp_id,
+        status: p.status,
+        createdAt: p.created_at
+      })),
+
+      categories: (categories || []).map(c => ({
+        id: c.id,
+        name: c.name,
+        color: c.color,
+        icon: c.icon
+      })),
+
+      inventory: (inventory || []).map(i => ({
+        id: i.id,
+        name: i.name,
+        catId: i.category_id,
+        sku: i.sku,
+        qty: Number(i.qty),
+        unit: i.unit,
+        threshold: Number(i.threshold),
+        desc: i.description || '',
+        cost: Number(i.cost || 0),
+        updatedAt: i.updated_at
+      })),
+
+      requests: (requests || []).map(r => ({
+        id: r.id,
+        reqId: r.req_id,
+        userId: r.user_id,
+        purpose: r.purpose,
+        urgency: r.urgency,
+        status: r.status,
+        submittedAt: r.submitted_at,
+        reviewedAt: r.reviewed_at,
+        reviewedBy: r.reviewed_by,
+        reviewNotes: r.review_notes || '',
+        issuedAt: r.issued_at,
+        issuedBy: r.issued_by,
+
+        items: (requestItems || [])
+          .filter(ri => ri.request_id === r.id)
+          .map(ri => ({
+            itemId: ri.item_id,
+            qty: Number(ri.qty)
+          }))
+      })),
+
+      issuances: (issuances || []).map(i => ({
+        id: i.id,
+        issId: i.iss_id,
+        requestId: i.request_id,
+        reqId: i.req_id,
+        userId: i.user_id,
+        issuedBy: i.issued_by,
+        issuedAt: i.issued_at,
+        notes: i.notes || '',
+
+        items: (issuanceItems || [])
+          .filter(ii => ii.issuance_id === i.id)
+          .map(ii => ({
+            itemId: ii.item_id,
+            name: ii.name,
+            qty: Number(ii.qty),
+            unit: ii.unit
+          }))
+      })),
+
+      activities: (activities || []).map(a => ({
+        id: a.id,
+        action: a.action,
+        detail: a.detail,
+        userId: a.user_id,
+        at: a.at
+      }))
+    };
+
+    console.log('Supabase data loaded:', DB);
+
+    return true;
+
+  } catch (error) {
+
+    console.error('Failed to load data from Supabase:', error);
+
+    toast(
+      'Unable to load application data from database.',
+      'error'
+    );
+
+    return false;
+  }
 }
 const SUPABASE_URL = 'https://narlhqvlwvgcnrchpmfp.supabase.co';
 
@@ -2174,45 +2360,18 @@ document.addEventListener('keydown', e => {
 // APP STARTUP
 // ============================================================
 
-loadDB();
+(async function startApp() {
 
-async function restoreSupabaseSession() {
+  const loaded = await loadDB();
 
-  const {
-    data: { session }
-  } = await supabaseClient.auth.getSession();
-
-  if (!session) {
+  if (!loaded) {
+    console.error('Application startup stopped.');
     return;
   }
 
-  const { data: profile, error } =
-    await supabaseClient
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single();
+  await restoreSupabaseSession();
 
-  if (error || !profile || profile.status !== 'active') {
-    await supabaseClient.auth.signOut();
-    return;
-  }
-
-  CU = {
-    id: profile.id,
-    name: profile.name,
-    email: profile.email,
-    role: profile.role,
-    dept: profile.dept,
-    empId: profile.emp_id,
-    status: profile.status,
-    createdAt: profile.created_at
-  };
-
-  showApp();
-}
-
-restoreSupabaseSession();
+})();
 </script>
 </body>
 </html>
