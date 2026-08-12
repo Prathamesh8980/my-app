@@ -1368,27 +1368,147 @@ function openEditItem(id) {
       <button class="btn btn-primary" onclick="saveItem(${id})">Save Changes</button>`);
 }
 
-function saveItem(id) {
+async function saveItem(id) {
+
   const name = $('m-name').value.trim();
-  const qty  = parseInt($('m-qty').value);
-  if (!name || isNaN(qty)) { toast('Name and quantity are required','error'); return; }
-  const body = {
-    name, sku: $('m-sku').value.trim(), catId: parseInt($('m-cat').value)||null,
-    unit: $('m-unit').value, qty, threshold: parseInt($('m-thr').value)||10,
-    cost: parseFloat($('m-cost').value)||0, desc: $('m-desc').value.trim(),
-    updatedAt: new Date().toISOString()
-  };
-  if (id) {
-    Object.assign(getItem(id), body);
-    logActivity('Item Updated', `${name} updated by ${CU.name}`);
-    toast('Item updated','success');
-  } else {
-    const newItem = { id: nextId(DB.inventory), ...body };
-    DB.inventory.push(newItem);
-    logActivity('Item Added', `${name} (${body.sku||'no SKU'}) added to inventory`);
-    toast('Item added to inventory','success');
+  const qty = parseInt($('m-qty').value);
+
+  if (!name || isNaN(qty)) {
+    toast('Name and quantity are required', 'error');
+    return;
   }
-  saveDB(); closeModal(); renderInventory(); checkAlerts();
+
+  const categoryId = parseInt($('m-cat').value) || null;
+  const sku = $('m-sku').value.trim();
+  const unit = $('m-unit').value;
+  const threshold = parseInt($('m-thr').value) || 10;
+  const cost = parseFloat($('m-cost').value) || 0;
+  const description = $('m-desc').value.trim();
+
+  try {
+
+    // ============================================================
+    // UPDATE EXISTING INVENTORY ITEM
+    // ============================================================
+
+    if (id) {
+
+      const { data, error } = await supabaseClient
+        .from('inventory')
+        .update({
+          name: name,
+          sku: sku,
+          category_id: categoryId,
+          unit: unit,
+          qty: qty,
+          threshold: threshold,
+          cost: cost,
+          description: description,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase inventory update error:', error);
+        toast('Unable to update item: ' + error.message, 'error');
+        return;
+      }
+
+      console.log('Inventory item updated in Supabase:', data);
+
+      // Update local application state
+      const index = DB.inventory.findIndex(item => item.id === id);
+
+      if (index !== -1) {
+        DB.inventory[index] = {
+          id: data.id,
+          name: data.name,
+          catId: data.category_id,
+          sku: data.sku,
+          qty: Number(data.qty),
+          unit: data.unit,
+          threshold: Number(data.threshold),
+          desc: data.description || '',
+          cost: Number(data.cost || 0),
+          updatedAt: data.updated_at
+        };
+      }
+
+      logActivity(
+        'Item Updated',
+        `${name} updated by ${CU.name}`
+      );
+
+      toast('Item updated successfully', 'success');
+
+    }
+
+    // ============================================================
+    // ADD NEW INVENTORY ITEM
+    // ============================================================
+
+    else {
+
+      const { data, error } = await supabaseClient
+        .from('inventory')
+        .insert({
+          name: name,
+          sku: sku,
+          category_id: categoryId,
+          unit: unit,
+          qty: qty,
+          threshold: threshold,
+          cost: cost,
+          description: description
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase inventory insert error:', error);
+        toast('Unable to add item: ' + error.message, 'error');
+        return;
+      }
+
+      console.log('Inventory item added to Supabase:', data);
+
+      // Add the REAL database record to application state
+      DB.inventory.push({
+        id: data.id,
+        name: data.name,
+        catId: data.category_id,
+        sku: data.sku,
+        qty: Number(data.qty),
+        unit: data.unit,
+        threshold: Number(data.threshold),
+        desc: data.description || '',
+        cost: Number(data.cost || 0),
+        updatedAt: data.updated_at
+      });
+
+      logActivity(
+        'Item Added',
+        `${name} (${sku || 'no SKU'}) added to inventory`
+      );
+
+      toast('Item added successfully', 'success');
+    }
+
+    closeModal();
+    renderInventory();
+    checkAlerts();
+
+  } catch (err) {
+
+    console.error('Unexpected inventory error:', err);
+
+    toast(
+      'Unable to save inventory item',
+      'error'
+    );
+  }
 }
 
 function openAdjustStock(id) {
