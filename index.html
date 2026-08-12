@@ -351,6 +351,7 @@ textarea.fc{resize:vertical;min-height:80px}
 @media print{#app,#login-screen,#modal-overlay,#toasts{display:none!important}#print-area{display:block!important}}
 #print-area{display:none}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -485,6 +486,31 @@ function loadDB() {
   DB.activities = DB.activities || [];
   DB.issuances  = DB.issuances  || [];
 }
+const SUPABASE_URL = 'https://narlhqvlwvgcnrchpmfp.supabase.co';
+
+const SUPABASE_PUBLISHABLE_KEY =
+  'sb_publishable_vuSJIi-2LnTsB0x0AUCH9g_Yvpy5M47';
+
+const supabaseClient = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY
+);
+async function testSupabaseConnection() {
+  const { data, error } = await supabaseClient
+    .from('categories')
+    .select('*')
+    .limit(1);
+
+  if (error) {
+    console.error('Supabase connection failed:', error);
+    alert('Supabase connection failed. Check the browser console.');
+    return;
+  }
+
+  console.log('Supabase connected successfully:', data);
+}
+
+testSupabaseConnection();
 
 function saveDB() { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); }
 
